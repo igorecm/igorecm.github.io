@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
   <meta name="description" content="Mono 129, the game maker powered by Lua" />
   <title>m129</title>
   <style>
@@ -15,6 +15,7 @@
 		justify-content: center;
 		align-items: center;
 		background-color: #101010;
+		overflow-x: hidden;
 	}.canvas-container {
 		display: flex;
 		justify-content: center;
@@ -31,7 +32,6 @@
 	<canvas id="m129canvas" width="512" height="384" oncontextmenu="return false;"></canvas>
 	<script src='libs/lua.vm.js' type="text/javascript"></script>
 	<script src='libs/pako.min.js'></script>
-	<!-- <script src='libs/fengari-web.js'></script> -->
 	<script src="m129.js"></script>
 	<script src="m129editor.js"></script>
 </body>
