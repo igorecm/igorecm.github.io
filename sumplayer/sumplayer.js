@@ -157,6 +157,9 @@ made by igorecm in 2025
 		428,404,381,360,339,320,302,285,269,254,240,226,
 		214,202,190,180,170,160,151,143,135,127,120,113
 	];
+
+	
+
 	const vibratoSineTable = [
 		  0,  24,  49,  74,  97, 120, 141, 161,
 		180, 197, 212, 224, 235, 244, 250, 253,
@@ -177,6 +180,15 @@ made by igorecm in 2025
 			return (7159090.5/(period+finetune)/2)
 		}
 	}
+
+	const baseFrequencyPitch = 7093789.2/214/2;
+
+	var periodPlayBackRateTable = [];
+
+	for(let i=856; i>112; i--){
+		periodPlayBackRateTable[i]=(7093789.2/i/2)/baseFrequencyPitch
+	}
+
 
 	/**********************
 	*       CLASSES       *
@@ -213,6 +225,7 @@ made by igorecm in 2025
 			const supportedFormats=[
 				"IGOR",
 				"M.K.",
+				"M!K!",
 				"4CHN",
 				"6CHN",
 				"8CHN"
@@ -310,7 +323,7 @@ made by igorecm in 2025
 
 			this.masterVolume      = 1.0;
 			this.masterPan         = 0.0;
-			this.panSeparation     = 0.2;
+			this.panSeparation     = 0.25;
 
 			this.currentPosition   = 0;
 			this.currentPattern    = 0;
@@ -326,6 +339,11 @@ made by igorecm in 2025
 			this.masterGain.connect(this.audioCtx.destination);
 			this.masterGain.gain.value = 0.64;
 
+			this.masterPan = this.audioCtx.createPanner();
+			this.masterPan.connect(this.audioCtx.destination);
+
+			this.debugOutput = ""
+
 			this.onRow = function(){}
 
 			this.resetAudio(true)
@@ -338,114 +356,38 @@ made by igorecm in 2025
 			}
 
 			this.playback.onmessage = (e) => {
+				
+				if (e.data.type == "update"){
+					let s =""
+					for (let i = 0; i < t.channelAmount; i++){
+						const ch = t.channels[i];
+						const nch = e.data.ch[i];
 
-				if (e.data.type == "row"){
-					//console.log(e.data)
+						if (nch.playSample){
+							t.playSample(i, nch.sample, nch.period, nch.volume, nch.playSampleOffset)
+						}
 
+
+						if (ch.source){
+							ch.source.playbackRate.value = periodPlayBackRateTable[nch.period];
+						}
+						ch.gainNode.gain.value = nch.volume/100
+
+						s += `${i} : ${periodToNote(nch.period)} ${formatn(nch.sample)} ${formatn(nch.volume)} ${formatn(nch.lastEffect,1)} ${formatn(nch.lastEffectValue)}<br>`
+					}
+
+					
+					t.debugOutput = s;
 					t.currentRow = e.data.row
 					t.currentPattern = t.songFile.positions[e.data.position]
 					t.currentPosition = e.data.position
 
-					
-					for (let i = 0; i < t.channelAmount; i++){
-						let p = t.songFile.positions[e.data.position]
-						t.playNote(t.songFile.patterns[p][i][e.data.row], i)
-					}
-					
-					let s = ""
-					//s += "ch..s..not.vol.eff.efv<br>"
-					for (let i = 0; i < t.channelAmount; i++){
-						let ch = t.channels[i];
-						s += `${i} : ${periodToNote(ch.period)} ${formatn(ch.sample)} ${formatn(ch.volume)} ${formatn(ch.lastEffect,1)} ${formatn(ch.lastEffectValue)}<br>`
-					}
-					document.getElementById("SUMPDEBUG").innerHTML = s
-
-					this.onRow()
-				}
-
-				if (e.data.type == "tick"){
-					for (let i = 0; i < t.channelAmount; i++){
-						let ch = t.channels[i];
-
-						// arpeggio (0xy)
-
-						if (ch.lastEffect == 0 && ch.lastEffectValue != 0 && ch.period != 0 && ch.period != 113){
-							ch.period = ch.arpeggioTable[ch.arpeggioTable[3]]
-							ch.arpeggioTable[3] = ch.arpeggioTable[3]+1
-							if (ch.arpeggioTable[3] == 3){ch.arpeggioTable[3] = 0}
-						}
-
-						let val = bitSlicer([ch.lastEffectValue],[4,4]);
-
-						switch(ch.lastEffect){
-							case 10: // volume slide (Axy)
-								if (val[0] == 0 && val[1] != 0){
-									ch.volume = clamp(0, ch.volume - val[1], 64)
-								} else if(val[1] == 0 && val[0] != 0){
-									ch.volume = clamp(0, ch.volume + val[0], 64)
-								}
-								break;
-							case 1: // porta up (1xx)
-								ch.period = clamp(113, ch.period - ch.lastEffectValue, 856)
-								ch.portaTarget = ch.period
-							break;
-
-							case 2: // porta down (2xx)
-								ch.period = clamp(113, ch.period + ch.lastEffectValue, 856)
-								ch.portaTarget = ch.period
-							break;
-							
-							case 3: // porta slide (3xx)
-								if (ch.period < ch.portaTarget){
-									ch.period = clamp(113, ch.period + ch.portaSpeed, ch.portaTarget)
-								} else if (ch.period > ch.portaTarget){
-									ch.period = clamp(ch.portaTarget, ch.period - ch.portaSpeed, 856 )
-								}
-								break;
-								
-							case 4: // vibrato (4xy)
-								ch.period = ch.portaTarget + (((ch.vibratoCounter < 32) 
-																? vibratoSineTable[ch.vibratoCounter] 
-																: -vibratoSineTable[ch.vibratoCounter - 32] * ch.vibratoDepth) >> 7);
-								ch.vibratoCounter = (ch.vibratoCounter + ch.vibratoSpeed)%64
-								break;
-							
-							case 5: // porta + volume slide (5xy)
-								if (ch.period < ch.portaTarget){
-									ch.period = clamp(113, ch.period + ch.portaSpeed, ch.portaTarget)
-								} else if (ch.period > ch.portaTarget){
-									ch.period = clamp(ch.portaTarget, ch.period - ch.portaSpeed, 856 )
-								}
-
-								if (val[0] == 0 && val[1] != 0){
-									ch.volume = clamp(0, ch.volume - val[1], 64)
-								} else if(val[1] == 0 && val[0] != 0){
-									ch.volume = clamp(0, ch.volume + val[0], 64)
-								}
-								break;
-							case 6: // vibrato + volume slide (6xy)
-								ch.period = ch.portaTarget + (((ch.vibratoCounter < 32) 
-																? vibratoSineTable[ch.vibratoCounter] 
-																: -vibratoSineTable[ch.vibratoCounter - 32] * ch.vibratoDepth) >> 7);
-								ch.vibratoCounter = (ch.vibratoCounter + ch.vibratoSpeed)%64
-
-								if (val[0] == 0 && val[1] != 0){
-									ch.volume = clamp(0, ch.volume - val[1], 64)
-								} else if(val[1] == 0 && val[0] != 0){
-									ch.volume = clamp(0, ch.volume + val[0], 64)
-								}
-								break;
-
-						}
-						if (ch.source){
-							ch.source.playbackRate.value = periodToFrequency(ch.period)/periodToFrequency(214);
-						}
-						ch.gainNode.gain.value = ch.volume/100
-
+					if (e.data.tick == 0){
+						t.onRow();
 					}
 				}
+
 			}
-			
 		}
 		stopAudio(){
 			for (let i = 0; i < this.channelAmount; i++){
@@ -463,22 +405,17 @@ made by igorecm in 2025
 				//let ch = this.channels[i]
 
 				let gainNode = this.audioCtx.createGain();
-				gainNode.connect(this.masterGain);
+				let panNode = this.audioCtx.createStereoPanner();
+
+				panNode.pan.value = this.panSeparation * ((i%2)*2-1)
+				gainNode.connect(panNode);
+				panNode.connect(this.masterGain);
+				
 
 				this.channels[i] = {
 					source: null,
 					gainNode: gainNode,
-					lastEffect: 0,
-					lastEffectValue: 0,
-					sample: 0,
-					volume: 64,
-					period: 856,
-					portaTarget : 0,
-					portaSpeed : 0,
-					vibratoDepth : 0,
-					vibratoSpeed : 0,
-					vibratoCounter : 0,
-					arpeggioTable: [0,0,0,0]
+					panNode : panNode
 				};
 			}
 
@@ -486,15 +423,16 @@ made by igorecm in 2025
 		
 		loadSong(song){
 			this.stopSong()
-			this.resetAudio()
 
 			this.songFile = song;
 			
 			this.channelAmount = this.songFile.channelAmount
+			let sinfo = []
+
 			for (let i = 1; i<=31; i++) {
 				let sample = this.songFile.samples[i]
 				if (sample.length != 0){
-					const buffer = this.audioCtx.createBuffer(1, sample.length, periodToFrequency(214)* Math.pow(2,sample.finetune/12/8) );
+					const buffer = this.audioCtx.createBuffer(1, sample.length, baseFrequencyPitch* Math.pow(2,sample.finetune/12/8) );
 					const channelData = buffer.getChannelData(0);
 					const sampleData = new Uint8Array(sample.data);
 
@@ -508,8 +446,20 @@ made by igorecm in 2025
 					buffer.loopEnd = (sample.loopLength + sample.loopStart)/buffer.sampleRate;
 
 					this.sampleBuffers[i] = buffer;
+					sinfo[i]=({volume : sample.volume, rate : buffer.sampleRate});
 				}
 			}
+
+			this.stopAudio()
+			this.resetAudio()
+
+			this.playback.postMessage({
+				type : "songdata",
+				patterndata : this.songFile.patterns,
+				sampleinfo : sinfo,
+				positionsdata : this.songFile.positions,
+				channelamnt: this.channelAmount
+			});
 		}
 
 		// controls
@@ -555,128 +505,17 @@ made by igorecm in 2025
 			ch.source.buffer = sampleBuffer;
 			ch.source.connect(ch.gainNode);
 
-			ch.source.playbackRate.value = periodToFrequency(period)/periodToFrequency(214);
+			ch.source.playbackRate.value = periodPlayBackRateTable[period];
 
 			ch.gainNode.gain.value = volume;
 
-			ch.source.start(0,offset);
+			ch.source.start(0, offset / this.sampleBuffers[sample].sampleRate);
 
 			if (sampleBuffer.loop) {
 				ch.source.loop = true;
 				ch.source.loopStart = sampleBuffer.loopStart;
 				ch.source.loopEnd = sampleBuffer.loopEnd;
 			}
-		}
-		playNote(note, channel){
-
-			const ch = this.channels[channel];
-
-			// set last sample value and set volume
-
-			if (note[1] != 0){
-				ch.sample = note[1]
-				ch.volume = this.songFile.samples[note[1]].volume
-			}
-
-			
-			// play note
-
-			if (note[0] != 0 && ch.sample != 0){
-
-				// set portamento slide target
-
-				ch.portaTarget = note[0]
-
-				if(note[2] != 3 && note[2] != 5 ){
-					ch.period = note[0]
-					ch.vibratoCounter = 0
-					this.playSample(channel, ch.sample , ch.period, ch.volume/100)
-					
-				}
-			}
-
-			// create arpeggio table
-
-			if (note[2]==0 && note[3]!=0 && ch.period != 0 && ch.period != 113){
-				if (ch.arpeggioTable[0] == 0 || note[3] != ch.lastEffectValue || note[0] != 0){ 
-					if(!periodTable.includes(ch.period)){ch.period = findClosest(periodTable,ch.period)}
-					let s = bitSlicer([note[3]],[4,4])
-					ch.arpeggioTable[0] = ch.period
-					ch.arpeggioTable[1] = periodTable[periodTable.indexOf(ch.period) + s[0]]
-					ch.arpeggioTable[2] = periodTable[periodTable.indexOf(ch.period) + s[1]]
-					ch.arpeggioTable[3] = 0
-				}
-			}
-
-			// reset vibrato
-			if (note[2] != ch.lastEffect && ch.lastEffect == 4){
-				ch.period = ch.portaTarget
-			}
-			// reset arpeggio
-			if (note[2] != ch.lastEffect && ch.lastEffect == 0 && ch.lastEffectValue != 0){
-				ch.period = ch.portaTarget
-			}
-
-			// handle effects
-
-			switch(note[2]){
-				case 3: // set portamento slide speed (3xx)
-					if (note[3]!=0){
-						ch.portaSpeed = note[3]
-					}
-					break;
-				case 4: // set vibrato (4xy)
-					if (note[3]!=0){
-						let s = bitSlicer([note[3]],[4,4])
-						ch.vibratoSpeed = s[0]
-						ch.vibratoDepth = s[1]
-					}
-					break;
-				case 9: // set sample offset (9xx)
-					this.playSample(channel, ch.sample, ch.period, ch.volume, note[3]*256 / this.sampleBuffers[ch.sample].sampleRate )
-					break;
-				case 11:  // jump to pos (Bxx)
-					this.playback.postMessage({command : "setpos", value : note[3]})
-					break;
-				case 12: // set volume effect (Cxx)
-					if (ch.source){
-						ch.volume = note[3]
-					}
-					break;
-				case 13: // break to row (Dxx)
-					this.playback.postMessage({command : "breakrow", value : note[3]})
-					break;
-				case 15: // set speed/bpm (Fxx)
-					if (note[3] < 32){
-						this.playback.postMessage({command : "changespeed", value : note[3]})
-					} else{
-						//this.playback.postMessage({command : "changebpm", value : note[3]})
-					}
-					break;
-			}
-
-			// Exy effects
-			if (note[2]==14){
-				let val = bitSlicer([note[3]],[4,4]);
-				switch(val[0]){
-					case 10: //fine volume up (EAy)
-						ch.volume = clamp(0, ch.volume + val[1], 64)
-						break;
-					case 11: //fine volume down (EBy)
-						ch.volume = clamp(0, ch.volume - val[1], 64)
-						break;
-				}
-			}
-
-			ch.gainNode.gain.value = ch.volume/100
-			if (ch.source){ch.source.playbackRate.value = periodToFrequency(ch.period)/periodToFrequency(214);}
-			
-
-			// set last values
-
-			ch.lastEffect      = note[2]
-			ch.lastEffectValue = note[3]
-			
 		}
 		
 		

@@ -3,6 +3,7 @@
 
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>mod player thingy</title>
   <style>
     body{
@@ -51,7 +52,7 @@
     <br><br>
     <div id="SUMPbody">
       <h3 id="songName"></h3>
-      <div id="SUMPDEBUG"></div>
+      <div id="SUMPDEBUG" hidden></div>
       <br>
       <div>
         <input id="SUMPseek" type="range" min="0" max="1" value="0" onchange="modplayer.setSongPosition(this.value)"></input> 
@@ -67,7 +68,8 @@
       </div>
       <br>
       <div>
-        volume: <input id="SUMPvolume" type="range" min="0" max="100" value="64" onchange="modplayer.setVolume(this.value/100)"></input> 
+        volume: <input id="SUMPvolume" type="range" min="0" max="100" value="64" onchange="modplayer.setVolume(this.value/100)"></input><br>
+        show channels info:  <input id="SUMPvolume" type="checkbox"  onchange="document.getElementById('SUMPDEBUG').hidden = !this.checked"></input>
       </div>
     </div>
 
@@ -149,10 +151,12 @@
       rebuildTable();
       document.getElementById("SUMPseek").max = modplayer.songFile.songlength
       modplayer.onRow = function(){
-        document.getElementById("SUMPplaybackInfo").innerHTML = `${modplayer.currentPosition}:${modplayer.currentRow} `
+        document.getElementById("SUMPplaybackInfo").innerText = `${modplayer.currentPosition}:${modplayer.currentRow} `
+        document.getElementById("SUMPDEBUG").innerHTML = modplayer.debugOutput
         if(modplayer.currentRow == 0 || modplayer.currentPosition == modplayer.songFile.songlength){ 
           document.getElementById("SUMPseek").value = modplayer.currentPosition 
         }
+
       }
     })
 
