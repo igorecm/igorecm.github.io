@@ -159,14 +159,6 @@ made by igorecm in 2025
 	];
 
 	
-
-	const vibratoSineTable = [
-		  0,  24,  49,  74,  97, 120, 141, 161,
-		180, 197, 212, 224, 235, 244, 250, 253,
-		255, 253, 250, 244, 235, 224, 212, 197,
-		180, 161, 141, 120,  97,  74,  49,  24
-	];
-
 	function periodToNote(period){
 		const noteTable = ['C-','C#','D-','D#','E-','F-','F#','G-','G#','A-','A#','B-'];
 		let noteNum = findClosestIndex(periodTable,period);
@@ -226,9 +218,6 @@ made by igorecm in 2025
 				"IGOR",
 				"M.K.",
 				"M!K!",
-				"4CHN",
-				"6CHN",
-				"8CHN"
 			];
 			
 			const songdata = dataUrItoUint8Array(dataUri);
@@ -308,214 +297,89 @@ made by igorecm in 2025
 
 		constructor(){
 			this.audioCtx = new (window.AudioContext || window.webkitAudioContext)({latencyHint: "playback"});
-			this.playback = new Worker("sump-worker.js");
-
-			//this.playback = new Worker(URL.createObjectURL(playbackScript));
-			/*this.playback = new Worker(URL.createObjectURL(new Blob([
-                    document.querySelector('#sumpWorker').textContent
-                ], {type: 'application/javascript'})));*/
+			this.workletNode = null
+			//this.initPromise = this.init();
 			
 			this.songFile = null;
 
-			this.channels = [];
-
 			this.sampleBuffers = Array(32);
-
-			this.masterVolume      = 1.0;
-			this.masterPan         = 0.0;
-			this.panSeparation     = 0.25;
 
 			this.currentPosition   = 0;
 			this.currentPattern    = 0;
 			this.currentRow        = 0;
-			this.currentAproxTime  = 0;
-
-			this.repeatSong        = true;
-			this.isPlaying         = false;
 
 			this.channelAmount = 4;
 
-			this.masterGain = this.audioCtx.createGain();
-			this.masterGain.connect(this.audioCtx.destination);
-			this.masterGain.gain.value = 0.64;
-
-			this.masterPan = this.audioCtx.createPanner();
-			this.masterPan.connect(this.audioCtx.destination);
+			this.onRow = function(){}
 
 			this.debugOutput = ""
 
-			this.onRow = function(){}
-
-			this.resetAudio(true)
-
 			let t = this;
+		}
 
-			function formatn(n,l=2){
-				n = n.toString(16)
-				return ("000000").slice(0,l-n.length)+n
-			}
+		
 
-			this.playback.onmessage = (e) => {
-				
-				if (e.data.type == "update"){
-					let s =""
-					for (let i = 0; i < t.channelAmount; i++){
-						const ch = t.channels[i];
-						const nch = e.data.ch[i];
+		async init(){
+			try {
+				await this.audioCtx.resume();
+				await this.audioCtx.audioWorklet.addModule('sump-audio.js');
+				this.workletNode = new AudioWorkletNode(this.audioCtx, 'sump-audio', {outputChannelCount: [2]});
+				this.workletNode.connect(this.audioCtx.destination);
 
-						if (nch.playSample){
-							t.playSample(i, nch.sample, nch.period, nch.volume, nch.playSampleOffset)
-						}
-
-
-						if (ch.source){
-							ch.source.playbackRate.value = periodPlayBackRateTable[nch.period];
-						}
-						ch.gainNode.gain.value = nch.volume/100
-
-						s += `${i} : ${periodToNote(nch.period)} ${formatn(nch.sample)} ${formatn(nch.volume)} ${formatn(nch.lastEffect,1)} ${formatn(nch.lastEffectValue)}<br>`
-					}
-
-					
-					t.debugOutput = s;
-					t.currentRow = e.data.row
-					t.currentPattern = t.songFile.positions[e.data.position]
-					t.currentPosition = e.data.position
-
-					if (e.data.tick == 0){
-						t.onRow();
-					}
-				}
-
+				this.workletNode.port.onmessage = this.onMessage.bind(this)
+			} catch (error) {
+				console.error('Error loading SUMP audio:', error);
 			}
 		}
-		stopAudio(){
-			for (let i = 0; i < this.channelAmount; i++){
-				let ch = this.channels[i]
 
-				if (ch.source){
-					ch.source.stop()
-					ch.source.disconnect();
-				}
+		onMessage(e){
+			switch(e.data.type){
+				case 'row':
+
+					this.onRow(e.data.pb)
+					break; 
 			}
-		}
-		resetAudio(f = false){
-			for (let i = 0; i < this.channelAmount; i++){
-
-				//let ch = this.channels[i]
-
-				let gainNode = this.audioCtx.createGain();
-				let panNode = this.audioCtx.createStereoPanner();
-
-				panNode.pan.value = this.panSeparation * ((i%2)*2-1)
-				gainNode.connect(panNode);
-				panNode.connect(this.masterGain);
-				
-
-				this.channels[i] = {
-					source: null,
-					gainNode: gainNode,
-					panNode : panNode
-				};
-			}
-
 		}
 		
 		loadSong(song){
-			this.stopSong()
-
 			this.songFile = song;
-			
-			this.channelAmount = this.songFile.channelAmount
-			let sinfo = []
-
-			for (let i = 1; i<=31; i++) {
-				let sample = this.songFile.samples[i]
-				if (sample.length != 0){
-					const buffer = this.audioCtx.createBuffer(1, sample.length, baseFrequencyPitch* Math.pow(2,sample.finetune/12/8) );
-					const channelData = buffer.getChannelData(0);
-					const sampleData = new Uint8Array(sample.data);
-
-					for (let i = 0; i < sample.length; i++) {
-						channelData[i] = (sampleData[i] < 128 ? sampleData[i] : sampleData[i] - 256) / 128;
-					}
-					buffer.loop = false
-					if (sample.loopLength > 2){buffer.loop = true};
-
-					buffer.loopStart = sample.loopStart/buffer.sampleRate;
-					buffer.loopEnd = (sample.loopLength + sample.loopStart)/buffer.sampleRate;
-
-					this.sampleBuffers[i] = buffer;
-					sinfo[i]=({volume : sample.volume, rate : buffer.sampleRate});
-				}
-			}
-
-			this.stopAudio()
-			this.resetAudio()
-
-			this.playback.postMessage({
-				type : "songdata",
-				patterndata : this.songFile.patterns,
-				sampleinfo : sinfo,
+			this.workletNode.port.postMessage({
+				type          : "songdata",
+				patterndata   : this.songFile.patterns,
+				sampledata    : this.songFile.samples,
 				positionsdata : this.songFile.positions,
-				channelamnt: this.channelAmount
+				songlength    : this.songFile.songlength,
 			});
 		}
 
 		// controls
 
+		setParam(param, value){
+			this.workletNode.port.postMessage({type : "setparam", param: param, value : value});
+		}
 		setVolume(volume){
-			this.masterGain.gain.value = volume;
+			this.workletNode.port.postMessage({type : "setvolume", value : volume});
 		}
 		setSongPosition(pos){
-			this.playback.postMessage({command : "seek", value : pos});
-			this.stopAudio()
+			this.workletNode.port.postMessage({type : "seek", value : pos});
 		}
 		playSong(){
-			this.resetAudio()
-			this.playback.postMessage({command : "play" , slength : this.songFile.songlength, repeat: this.repeatSong});
+			this.workletNode.port.postMessage({type : "play"});
 		}
 		stopSong(){
-			this.playback.postMessage({command : "stop"});
-			this.stopAudio()
-			this.resetAudio()
-			
+			this.workletNode.port.postMessage({type : "stop"});
 		}
 		pauseSong(){
-			this.playback.postMessage({command : "pause"});
-			this.stopAudio()
-			
+			this.workletNode.port.postMessage({type : "pause"});
 		}
 		resumeSong(){
-			this.playback.postMessage({command : "resume"});
+			this.workletNode.port.postMessage({type : "resume"});
 		}
-		
-
-		// playback related
-
-		playSample(channelIndex, sample, period, volume = 0.64, offset = 0){
-			const ch = this.channels[channelIndex];
-			const sampleBuffer = this.sampleBuffers[sample]
-			if (ch.source) {
-				ch.source.stop();
-				ch.source.disconnect();
-			}
-
-			ch.source = this.audioCtx.createBufferSource();
-			ch.source.buffer = sampleBuffer;
-			ch.source.connect(ch.gainNode);
-
-			ch.source.playbackRate.value = periodPlayBackRateTable[period];
-
-			ch.gainNode.gain.value = volume;
-
-			ch.source.start(0, offset / this.sampleBuffers[sample].sampleRate);
-
-			if (sampleBuffer.loop) {
-				ch.source.loop = true;
-				ch.source.loopStart = sampleBuffer.loopStart;
-				ch.source.loopEnd = sampleBuffer.loopEnd;
-			}
+		testSample(p){
+			this.workletNode.port.postMessage({
+				type   : "testsample",
+				period : p
+			})
 		}
 		
 		
