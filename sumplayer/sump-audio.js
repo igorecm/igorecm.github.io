@@ -269,7 +269,7 @@ class SUMPAudio extends AudioWorkletProcessor {
 				this.resetAudio();
 				this.loadSamples(e.sampledata);
 				
-				console.log(this)
+				//console.log(this)
 				break;
 			case 'setChannel':
 				const ch = this.channels[e.channel];
@@ -599,6 +599,12 @@ class SUMPAudio extends AudioWorkletProcessor {
 						break;
 					case 0xB:
 						ch.volume -= effectvalue[1]
+						break;
+					case 0xE:
+						if (pb.patternDelay == 0){
+							pb.patternDelay = effectvalue[1]
+						}
+						
 						break;
 				}
 			}
